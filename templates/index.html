@@ -1,0 +1,1086 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PhotoFilter Pro — 图片调色批量处理</title>
+<style>
+/* ═══════════════ RESET & VARIABLES ═══════════════ */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #0d1117; --panel: #161b22; --border: #30363d;
+  --text: #c9d1d9; --text-dim: #8b949e; --text-bright: #f0f6fc;
+  --accent: #7c3aed; --accent-hover: #8b5cf6; --accent-dim: #6d28d9;
+  --danger: #ef4444; --success: #22c55e; --warn: #f59e0b;
+  --slider-track: #21262d; --slider-fill: #7c3aed;
+  --radius: 8px; --radius-sm: 4px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+body { background: var(--bg); color: var(--text); height: 100vh; overflow: hidden; }
+
+/* ═══════════════ LAYOUT ═══════════════ */
+#app { display: flex; flex-direction: column; height: 100vh; }
+
+/* Header */
+header {
+  display: flex; align-items: center; gap: 12px;
+  padding: 8px 16px; background: var(--panel);
+  border-bottom: 1px solid var(--border); flex-shrink: 0; z-index: 10;
+}
+header .logo { font-size: 20px; }
+header h1 { font-size: 16px; font-weight: 600; color: var(--text-bright); white-space: nowrap; }
+header .spacer { flex: 1; }
+header button, header .btn {
+  padding: 6px 14px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--slider-track); color: var(--text); cursor: pointer;
+  font-size: 13px; white-space: nowrap; transition: all 0.15s;
+}
+header button:hover, header .btn:hover { background: #30363d; border-color: var(--text-dim); }
+header .btn-accent { background: var(--accent); border-color: var(--accent); color: #fff; }
+header .btn-accent:hover { background: var(--accent-hover); }
+header select {
+  padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--slider-track); color: var(--text); font-size: 13px;
+  cursor: pointer; max-width: 180px;
+}
+
+/* Main content */
+main { display: flex; flex: 1; overflow: hidden; }
+
+/* ═══════════════ LEFT PANEL: Controls ═══════════════ */
+#controls-panel {
+  width: 340px; min-width: 340px; background: var(--panel);
+  border-right: 1px solid var(--border);
+  overflow-y: auto; overflow-x: hidden; padding-bottom: 20px;
+}
+#controls-panel::-webkit-scrollbar { width: 4px; }
+#controls-panel::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+.section-header {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 14px; cursor: pointer; user-select: none;
+  border-bottom: 1px solid var(--border); font-size: 13px;
+  font-weight: 600; color: var(--text-bright); transition: background 0.15s;
+}
+.section-header:hover { background: #1c2128; }
+.section-header .arrow { font-size: 10px; transition: transform 0.2s; width: 12px; text-align: center; }
+.section-header.collapsed .arrow { transform: rotate(-90deg); }
+.section-body { padding: 8px 14px; }
+.section-header.collapsed + .section-body { display: none; }
+
+/* Slider row */
+.slider-row {
+  display: flex; align-items: center; gap: 8px; margin: 4px 0;
+}
+.slider-row label {
+  font-size: 12px; color: var(--text-dim); min-width: 48px; white-space: nowrap;
+}
+.slider-row .val {
+  font-size: 11px; color: var(--text); min-width: 36px; text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.slider-row input[type="range"] {
+  flex: 1; -webkit-appearance: none; height: 4px;
+  background: var(--slider-track); border-radius: 2px; outline: none;
+}
+.slider-row input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 14px; height: 14px;
+  border-radius: 50%; background: var(--accent); cursor: pointer; border: 2px solid var(--panel);
+}
+.slider-row input[type="range"]::-webkit-slider-thumb:hover { background: var(--accent-hover); }
+.slider-row input[type="number"] {
+  width: 52px; padding: 2px 4px; font-size: 11px;
+  background: var(--bg); color: var(--text); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); text-align: center;
+}
+
+/* HSL Color Section */
+.hsl-color-row {
+  display: flex; align-items: center; gap: 6px; padding: 6px 8px;
+  cursor: pointer; border-radius: var(--radius-sm); margin: 2px 0; transition: background 0.15s;
+}
+.hsl-color-row:hover { background: #1c2128; }
+.hsl-color-row .swatch {
+  width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--border); flex-shrink: 0;
+}
+.hsl-color-row .color-name { font-size: 12px; color: var(--text); flex: 1; }
+.hsl-color-row .arrow-sm { font-size: 10px; color: var(--text-dim); transition: transform 0.2s; }
+.hsl-color-row.expanded .arrow-sm { transform: rotate(90deg); }
+.hsl-sub { padding: 4px 0 4px 20px; display: none; }
+.hsl-color-row.expanded + .hsl-sub { display: block; }
+
+/* ═══════════════ CENTER: Preview ═══════════════ */
+#preview-area {
+  flex: 1; display: flex; flex-direction: column; align-items: center;
+  justify-content: center; background: #0a0d11; position: relative; overflow: hidden;
+}
+
+/* Drop zone */
+#drop-zone {
+  display: flex; flex-direction: column; align-items: center; gap: 16px;
+  padding: 60px 40px; border: 2px dashed var(--border); border-radius: var(--radius);
+  color: var(--text-dim); cursor: pointer; transition: all 0.2s;
+}
+#drop-zone:hover, #drop-zone.drag-over { border-color: var(--accent); color: var(--accent); }
+#drop-zone .icon { font-size: 48px; }
+#drop-zone p { font-size: 14px; }
+#drop-zone .hint { font-size: 12px; color: var(--text-dim); }
+
+/* Image display */
+#preview-container { display: none; width: 100%; height: 100%; position: relative; }
+#preview-img {
+  max-width: 100%; max-height: 100%; object-fit: contain;
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+}
+#compare-container {
+  position: absolute; inset: 60px 8px 80px 8px;
+  display: flex; gap: 4px; align-items: center;
+}
+.compare-side {
+  flex: 1; display: flex; flex-direction: column; align-items: center;
+  height: 100%; overflow: hidden;
+}
+.compare-label {
+  font-size: 12px; color: var(--text-dim);
+  padding: 4px 12px; margin-bottom: 6px;
+  background: rgba(0,0,0,0.5); border-radius: var(--radius-sm);
+}
+.compare-side img {
+  max-width: 100%; max-height: calc(100% - 30px);
+  object-fit: contain; border-radius: var(--radius-sm);
+}
+#preview-loading {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  font-size: 14px; color: var(--accent); display: none;
+}
+
+/* Preview toolbar */
+#preview-toolbar {
+  position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
+  display: flex; gap: 8px; z-index: 5; display: none;
+}
+#preview-toolbar button {
+  padding: 8px 16px; border: 1px solid rgba(255,255,255,0.2);
+  border-radius: var(--radius-sm); background: rgba(0,0,0,0.6);
+  color: #fff; cursor: pointer; font-size: 13px; backdrop-filter: blur(8px);
+  transition: all 0.15s;
+}
+#preview-toolbar button:hover { background: rgba(0,0,0,0.8); }
+#preview-toolbar button.active { background: var(--accent); border-color: var(--accent); }
+
+/* ═══════════════ RIGHT PANEL: Batch ═══════════════ */
+#batch-panel {
+  width: 280px; min-width: 280px; background: var(--panel);
+  border-left: 1px solid var(--border); display: flex; flex-direction: column;
+}
+#batch-panel h3 {
+  padding: 12px 14px; font-size: 13px; color: var(--text-bright);
+  border-bottom: 1px solid var(--border);
+}
+#batch-actions { padding: 10px 14px; display: flex; gap: 8px; }
+#batch-actions button {
+  flex: 1; padding: 8px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--slider-track); color: var(--text); cursor: pointer; font-size: 12px;
+}
+#batch-actions button:hover { background: #30363d; }
+#batch-actions .btn-process {
+  background: var(--accent); border-color: var(--accent); color: #fff;
+}
+#batch-actions .btn-process:hover { background: var(--accent-hover); }
+#batch-actions .btn-process:disabled { opacity: 0.4; cursor: not-allowed; }
+
+#batch-list {
+  flex: 1; overflow-y: auto; padding: 0 14px;
+}
+#batch-list::-webkit-scrollbar { width: 4px; }
+#batch-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+.batch-item {
+  display: flex; align-items: center; gap: 8px; padding: 8px 0;
+  border-bottom: 1px solid var(--border); font-size: 12px;
+}
+.batch-item .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.batch-item .remove { color: var(--danger); cursor: pointer; font-size: 16px; line-height: 1; }
+.batch-item .remove:hover { opacity: 0.8; }
+.batch-item .status { font-size: 10px; padding: 2px 6px; border-radius: 3px; }
+.batch-item .status.ok { color: var(--success); }
+.batch-item .status.err { color: var(--danger); }
+
+.empty-batch {
+  text-align: center; padding: 40px 14px; color: var(--text-dim); font-size: 12px;
+}
+
+/* ═══════════════ TOAST ═══════════════ */
+#toast {
+  position: fixed; top: 16px; right: 16px; z-index: 100;
+  padding: 10px 18px; border-radius: var(--radius-sm);
+  font-size: 13px; color: #fff; display: none;
+  animation: fadeIn 0.2s;
+}
+#toast.success { background: var(--success); }
+#toast.error { background: var(--danger); }
+#toast.info { background: var(--accent); }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
+
+/* ═══════════════ MODAL ═══════════════ */
+.modal-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 50;
+  display: flex; align-items: center; justify-content: center; display: none;
+}
+.modal-overlay.show { display: flex; }
+.modal {
+  background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 24px; min-width: 320px; max-width: 400px;
+}
+.modal h3 { margin-bottom: 16px; font-size: 15px; color: var(--text-bright); }
+.modal input {
+  width: 100%; padding: 8px 12px; font-size: 14px;
+  background: var(--bg); color: var(--text); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); margin-bottom: 16px;
+}
+.modal .modal-btns { display: flex; gap: 8px; justify-content: flex-end; }
+.modal button {
+  padding: 8px 18px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--slider-track); color: var(--text); cursor: pointer; font-size: 13px;
+}
+.modal .btn-ok { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+/* ═══════════════ RESPONSIVE ═══════════════ */
+@media (max-width: 1200px) {
+  #controls-panel { width: 280px; min-width: 280px; }
+  #batch-panel { width: 240px; min-width: 240px; }
+}
+</style>
+</head>
+<body>
+
+<div id="app">
+  <!-- HEADER -->
+  <header>
+    <span class="logo">🎨</span>
+    <h1>PhotoFilter Pro</h1>
+    <span style="font-size:11px;color:var(--text-dim)">批量调色工具</span>
+    <span class="spacer"></span>
+    <select id="preset-select" onchange="loadPreset(this.value)">
+      <option value="">— 选择预设 —</option>
+    </select>
+    <button onclick="showSaveModal()">💾 保存预设</button>
+    <button onclick="exportPreset()">📤 导出</button>
+    <button onclick="document.getElementById('import-file').click()">📥 导入</button>
+    <input type="file" id="import-file" accept=".json" style="display:none" onchange="importPreset(this)">
+    <span id="gpu-indicator" style="font-size:11px;color:var(--text-dim);display:flex;align-items:center;gap:4px;padding:4px 8px;border:1px solid var(--border);border-radius:4px;cursor:pointer" onclick="toggleGPU()" title="点击切换 GPU 加速">🔲 GPU</span>
+    <button class="btn-accent" onclick="resetParams()">↺ 重置</button>
+  </header>
+
+  <main>
+    <!-- LEFT: Controls -->
+    <aside id="controls-panel">
+      <!-- Basic -->
+      <div class="section-header" data-section="basic">
+        <span class="arrow">▼</span> ☀️ 基本
+      </div>
+      <div class="section-body" id="sect-basic"></div>
+
+      <!-- Presence -->
+      <div class="section-header collapsed" data-section="presence">
+        <span class="arrow">▼</span> ✨ 效果
+      </div>
+      <div class="section-body" id="sect-presence" style="display:none"></div>
+
+      <!-- Color -->
+      <div class="section-header" data-section="color">
+        <span class="arrow">▼</span> 🎨 颜色
+      </div>
+      <div class="section-body" id="sect-color"></div>
+
+      <!-- HSL -->
+      <div class="section-header" data-section="hsl">
+        <span class="arrow">▼</span> 🌈 HSL / 分色调整
+      </div>
+      <div class="section-body" id="sect-hsl"></div>
+
+      <!-- Sharpening -->
+      <div class="section-header collapsed" data-section="sharp">
+        <span class="arrow">▼</span> 🔪 锐化
+      </div>
+      <div class="section-body" id="sect-sharp" style="display:none"></div>
+
+      <!-- Noise Reduction -->
+      <div class="section-header collapsed" data-section="nr">
+        <span class="arrow">▼</span> 🔇 噪点消除
+      </div>
+      <div class="section-body" id="sect-nr" style="display:none"></div>
+    </aside>
+
+    <!-- CENTER: Preview -->
+    <section id="preview-area">
+      <div id="drop-zone" onclick="document.getElementById('file-input').click()">
+        <span class="icon">🖼️</span>
+        <p>点击或拖放图片到此处</p>
+        <span class="hint">支持 JPG / PNG / WebP / BMP</span>
+      </div>
+      <input type="file" id="file-input" accept="image/*" style="display:none" onchange="uploadImage(this.files[0])">
+      <div id="preview-container">
+        <img id="preview-img" src="" alt="预览">
+        <div id="compare-container" style="display:none">
+          <div class="compare-side">
+            <span class="compare-label">📷 原图</span>
+            <img id="compare-original" src="" alt="原图">
+          </div>
+          <div class="compare-side">
+            <span class="compare-label">✨ 处理后</span>
+            <img id="compare-processed" src="" alt="处理后">
+          </div>
+        </div>
+        <div id="preview-loading">⏳ 处理中...</div>
+        <div id="preview-toolbar">
+          <button id="btn-before" onclick="setPreviewMode('before')">📷 原图</button>
+          <button id="btn-after" class="active" onclick="setPreviewMode('after')">✨ 处理后</button>
+          <button id="btn-compare" onclick="setPreviewMode('compare')">⚖ 对比</button>
+          <button id="btn-save" onclick="saveImage()" style="margin-left:auto" title="保存到 outputs/">💾 保存</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- RIGHT: Batch -->
+    <aside id="batch-panel">
+      <h3>📦 批量处理队列</h3>
+      <div id="batch-actions">
+        <button onclick="document.getElementById('batch-input').click()">＋ 添加文件</button>
+        <button id="btn-batch-process" class="btn-process" onclick="processBatch()" disabled>▶ 批量处理</button>
+        <input type="file" id="batch-input" accept="image/*" multiple style="display:none" onchange="addBatchFiles(this.files)">
+      </div>
+      <div style="padding:6px 14px;display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text-dim)">
+        <span>⚙ 并行:</span>
+        <select id="worker-count" style="flex:1;padding:3px 6px;background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;font-size:11px">
+          <option value="auto">自动 (CPU 核心数)</option>
+          <option value="1">1 线程</option>
+          <option value="2">2 线程</option>
+          <option value="4">4 线程</option>
+          <option value="6">6 线程</option>
+          <option value="8">8 线程</option>
+        </select>
+      </div>
+      <div id="batch-list"><div class="empty-batch">暂无文件，添加图片到队列</div></div>
+    </aside>
+  </main>
+</div>
+
+<!-- Save Preset Modal -->
+<div class="modal-overlay" id="save-modal">
+  <div class="modal">
+    <h3>💾 保存预设</h3>
+    <input type="text" id="preset-name" placeholder="输入预设名称…" maxlength="50">
+    <div class="modal-btns">
+      <button onclick="hideSaveModal()">取消</button>
+      <button class="btn-ok" onclick="savePreset()">保存</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+// ══════════════════════════════════════════════
+//  STATE
+// ══════════════════════════════════════════════
+const DEFAULT_PARAMS = {
+  temperature: 0, tint: 0, exposure: 0, contrast: 0,
+  highlights: 0, shadows: 0, whites: 0, blacks: 0,
+  texture: 0, clarity: 0, dehaze: 0,
+  vibrance: 0, saturation: 0,
+  hsl: {
+    red: { hue:0, saturation:0, luminance:0 },
+    orange: { hue:0, saturation:0, luminance:0 },
+    yellow: { hue:0, saturation:0, luminance:0 },
+    green: { hue:0, saturation:0, luminance:0 },
+    aqua: { hue:0, saturation:0, luminance:0 },
+    blue: { hue:0, saturation:0, luminance:0 },
+    purple: { hue:0, saturation:0, luminance:0 },
+    magenta: { hue:0, saturation:0, luminance:0 }
+  },
+  sharpening: { amount:0, radius:1.0, detail:25, masking:0 },
+  noise_reduction: { luminance:0, detail:50, contrast:0, color:0, color_detail:50, color_smoothness:50 }
+};
+
+const state = {
+  currentImage: null,
+  originalUrl: '',
+  processedUrl: '',
+  params: JSON.parse(JSON.stringify(DEFAULT_PARAMS)),
+  presets: [],
+  batchFiles: [],
+  previewMode: 'after',
+  pendingPreview: null  // debounce timer
+};
+
+// ══════════════════════════════════════════════
+//  SLIDER DEFINITIONS
+// ══════════════════════════════════════════════
+function buildSliders() {
+  const groups = {
+    'sect-basic': [
+      ['temperature', '色温', -100, 100, 0],
+      ['tint', '色调', -100, 100, 0],
+      ['exposure', '曝光度', -5, 5, 0.01],
+      ['contrast', '对比度', -100, 100, 0],
+      ['highlights', '高光', -100, 100, 0],
+      ['shadows', '阴影', -100, 100, 0],
+      ['whites', '白色色阶', -100, 100, 0],
+      ['blacks', '黑色色阶', -100, 100, 0],
+    ],
+    'sect-presence': [
+      ['texture', '纹理', -100, 100, 0],
+      ['clarity', '清晰度', -100, 100, 0],
+      ['dehaze', '去朦胧', 0, 100, 0],
+    ],
+    'sect-color': [
+      ['vibrance', '鲜艳度', -100, 100, 0],
+      ['saturation', '饱和度', -100, 100, 0],
+    ],
+    'sect-sharp': [
+      ['sharpening.amount', '数量', 0, 150, 0],
+      ['sharpening.radius', '半径', 0.5, 3, 0.1],
+      ['sharpening.detail', '细节', 0, 100, 0],
+      ['sharpening.masking', '蒙版', 0, 100, 0],
+    ],
+    'sect-nr': [
+      ['noise_reduction.luminance', '明亮度', 0, 100, 0],
+      ['noise_reduction.detail', '细节', 0, 100, 0],
+      ['noise_reduction.contrast', '对比度', 0, 100, 0],
+      ['noise_reduction.color', '颜色', 0, 100, 0],
+      ['noise_reduction.color_detail', '颜色细节', 0, 100, 0],
+      ['noise_reduction.color_smoothness', '颜色平滑度', 0, 100, 0],
+    ],
+  };
+
+  for (const [sectionId, sliders] of Object.entries(groups)) {
+    const container = document.getElementById(sectionId);
+    for (const [key, label, min, max, step] of sliders) {
+      const row = document.createElement('div');
+      row.className = 'slider-row';
+      const id = 'slider-' + key.replace(/\./g, '-');
+      row.innerHTML = `
+        <label>${label}</label>
+        <input type="range" id="${id}" min="${min}" max="${max}" step="${step}" value="${getParam(key)}"
+               oninput="onSliderChange('${key}', this)">
+        <input type="number" id="${id}-num" value="${getParam(key)}" min="${min}" max="${max}" step="${step}"
+               onchange="onNumChange('${key}', this)" style="width:56px">
+      `;
+      container.appendChild(row);
+    }
+  }
+
+  // HSL colors
+  buildHslUI();
+}
+
+function buildHslUI() {
+  const container = document.getElementById('sect-hsl');
+  const colors = [
+    { id:'red', name:'红色', hex:'#ef4444' },
+    { id:'orange', name:'橙色', hex:'#f97316' },
+    { id:'yellow', name:'黄色', hex:'#eab308' },
+    { id:'green', name:'绿色', hex:'#22c55e' },
+    { id:'aqua', name:'浅绿色', hex:'#06b6d4' },
+    { id:'blue', name:'蓝色', hex:'#3b82f6' },
+    { id:'purple', name:'紫色', hex:'#8b5cf6' },
+    { id:'magenta', name:'洋红', hex:'#ec4899' },
+  ];
+
+  for (const c of colors) {
+    // Color row (clickable)
+    const row = document.createElement('div');
+    row.className = 'hsl-color-row';
+    row.id = `hsl-${c.id}`;
+    row.innerHTML = `
+      <span class="swatch" style="background:${c.hex}"></span>
+      <span class="color-name">${c.name}</span>
+      <span class="arrow-sm">▶</span>
+    `;
+    row.onclick = () => toggleHslColor(c.id);
+
+    // Sub-sliders
+    const sub = document.createElement('div');
+    sub.className = 'hsl-sub';
+    sub.id = `hsl-sub-${c.id}`;
+    const attrs = [
+      ['hue', '色相', -100, 100, 0],
+      ['saturation', '饱和度', -100, 100, 0],
+      ['luminance', '明亮度', -100, 100, 0],
+    ];
+    for (const [attr, label, min, max, step] of attrs) {
+      const key = `hsl.${c.id}.${attr}`;
+      const sid = 'slider-' + key.replace(/\./g, '-');
+      const val = state.params.hsl[c.id][attr];
+      const srow = document.createElement('div');
+      srow.className = 'slider-row';
+      srow.innerHTML = `
+        <label>${label}</label>
+        <input type="range" id="${sid}" min="${min}" max="${max}" step="${step}" value="${val}"
+               oninput="onSliderChange('${key}', this)">
+        <input type="number" id="${sid}-num" value="${val}" min="${min}" max="${max}" step="${step}"
+               onchange="onNumChange('${key}', this)" style="width:52px;font-size:11px">
+      `;
+      sub.appendChild(srow);
+    }
+
+    container.appendChild(row);
+    container.appendChild(sub);
+  }
+}
+
+// ══════════════════════════════════════════════
+//  PARAM GET/SET
+// ══════════════════════════════════════════════
+function getParam(path) {
+  const parts = path.split('.');
+  let obj = state.params;
+  for (const p of parts) obj = obj[p];
+  return obj;
+}
+
+function setParam(path, value) {
+  const parts = path.split('.');
+  let obj = state.params;
+  for (let i = 0; i < parts.length - 1; i++) obj = obj[parts[i]];
+  obj[parts[parts.length - 1]] = value;
+}
+
+// ══════════════════════════════════════════════
+//  SLIDER HANDLERS
+// ══════════════════════════════════════════════
+function onSliderChange(key, slider) {
+  const val = parseFloat(slider.value);
+  setParam(key, val);
+  const numId = 'slider-' + key.replace(/\./g, '-') + '-num';
+  const numEl = document.getElementById(numId);
+  if (numEl) {
+    if (Number.isInteger(parseFloat(slider.step)) && slider.step >= 1) {
+      numEl.value = Math.round(val);
+    } else {
+      numEl.value = val.toFixed(1);
+    }
+  }
+  schedulePreview();
+}
+
+function onNumChange(key, input) {
+  const val = parseFloat(input.value);
+  if (isNaN(val)) return;
+  setParam(key, val);
+  const sliderId = 'slider-' + key.replace(/\./g, '-');
+  const slider = document.getElementById(sliderId);
+  if (slider) slider.value = val;
+  schedulePreview();
+}
+
+function schedulePreview() {
+  if (state.pendingPreview) clearTimeout(state.pendingPreview);
+  state.pendingPreview = setTimeout(updatePreview, 250);
+}
+
+// ══════════════════════════════════════════════
+//  HSL UI TOGGLE
+// ══════════════════════════════════════════════
+function toggleHslColor(colorId) {
+  const row = document.getElementById('hsl-' + colorId);
+  const wasExpanded = row.classList.contains('expanded');
+  // Collapse all
+  document.querySelectorAll('.hsl-color-row').forEach(r => r.classList.remove('expanded'));
+  if (!wasExpanded) row.classList.add('expanded');
+}
+
+// ══════════════════════════════════════════════
+//  SECTION TOGGLE
+// ══════════════════════════════════════════════
+document.addEventListener('click', function(e) {
+  const header = e.target.closest('.section-header');
+  if (!header) return;
+  header.classList.toggle('collapsed');
+  const body = header.nextElementSibling;
+  if (body) body.style.display = header.classList.contains('collapsed') ? 'none' : '';
+});
+
+// ══════════════════════════════════════════════
+//  IMAGE UPLOAD & DRAG-DROP
+// ══════════════════════════════════════════════
+const dropZone = document.getElementById('drop-zone');
+const previewArea = document.getElementById('preview-area');
+
+previewArea.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+previewArea.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+previewArea.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('drag-over');
+  const files = e.dataTransfer.files;
+  if (files.length > 0) {
+    const imgFile = files[0];
+    if (imgFile.type.startsWith('image/')) uploadImage(imgFile);
+  }
+});
+
+async function uploadImage(file) {
+  if (!file) return;
+  const formData = new FormData();
+  formData.append('file', file);
+
+  try {
+    const res = await fetch('/api/upload', { method: 'POST', body: formData });
+    const data = await res.json();
+    state.currentImage = data;
+    state._saved = false;
+    state.originalUrl = `/api/preview/${data.id}`;
+    state.processedUrl = state.originalUrl;
+    state.previewMode = 'after';
+
+    // Show image
+    document.getElementById('drop-zone').style.display = 'none';
+    document.getElementById('preview-container').style.display = 'block';
+    document.getElementById('preview-toolbar').style.display = 'flex';
+    document.getElementById('preview-img').src = state.originalUrl;
+    document.getElementById('btn-after').classList.add('active');
+    document.getElementById('btn-before').classList.remove('active');
+  } catch (err) {
+    toast('上传失败: ' + err.message, 'error');
+  }
+}
+
+async function updatePreview() {
+  if (!state.currentImage) return;
+  const loading = document.getElementById('preview-loading');
+  loading.style.display = 'block';
+
+  try {
+    const formData = new FormData();
+    formData.append('params_json', JSON.stringify(state.params));
+    const res = await fetch(`/api/preview/${state.currentImage.id}`, {
+      method: 'POST', body: formData
+    });
+    if (!res.ok) throw new Error('处理失败');
+    const blob = await res.blob();
+    if (state.processedUrl) URL.revokeObjectURL(state.processedUrl);
+    state.processedUrl = URL.createObjectURL(blob);
+
+    if (state.previewMode === 'after') {
+      document.getElementById('preview-img').src = state.processedUrl;
+    }
+  } catch (err) {
+    toast('预览失败: ' + err.message, 'error');
+  } finally {
+    loading.style.display = 'none';
+  }
+}
+
+function setPreviewMode(mode) {
+  if (!state.currentImage) return;
+  state.previewMode = mode;
+
+  const img = document.getElementById('preview-img');
+  const compare = document.getElementById('compare-container');
+  const btnBefore = document.getElementById('btn-before');
+  const btnCompare = document.getElementById('btn-compare');
+  const btnAfter = document.getElementById('btn-after');
+
+  btnBefore.classList.toggle('active', mode === 'before');
+  btnCompare.classList.toggle('active', mode === 'compare');
+  btnAfter.classList.toggle('active', mode === 'after');
+
+  if (mode === 'compare') {
+    img.style.display = 'none';
+    compare.style.display = 'flex';
+    document.getElementById('compare-original').src = state.originalUrl;
+    document.getElementById('compare-processed').src = state.processedUrl || state.originalUrl;
+  } else {
+    img.style.display = '';
+    compare.style.display = 'none';
+    img.src = mode === 'before' ? state.originalUrl : state.processedUrl;
+  }
+}
+
+
+// ==========================================
+//  SAVE IMAGE
+// ==========================================
+async function saveImage() {
+  if (!state.currentImage) return;
+  try {
+    const res = await fetch(`/api/save/${state.currentImage}`, { method: 'POST' });
+    const data = await res.json();
+    if (data.ok) {
+      toast('💾 已保存到 outputs/', 'success');
+      state._saved = true;
+    }
+  } catch (err) {
+    toast('保存失败: ' + err.message, 'error');
+  }
+}
+
+// Auto-save on close if not manually saved
+window.addEventListener('beforeunload', () => {
+  if (state.currentImage && !state._saved && state.processedUrl && state.processedUrl.startsWith('blob:')) {
+    const fd = new FormData();
+    fd.append('img_id', state.currentImage);
+    navigator.sendBeacon(`/api/save/${state.currentImage}`, fd);
+  }
+});
+
+
+// ══════════════════════════════════════════════
+//  PRESET MANAGEMENT
+// ══════════════════════════════════════════════
+async function loadPresets() {
+  try {
+    const res = await fetch('/api/presets');
+    const data = await res.json();
+    state.presets = data.presets;
+    const select = document.getElementById('preset-select');
+    select.innerHTML = '<option value="">— 选择预设 —</option>';
+    for (const p of state.presets) {
+      const opt = document.createElement('option');
+      opt.value = p.id;
+      opt.textContent = p.name;
+      select.appendChild(opt);
+    }
+  } catch (err) {
+    console.error('Failed to load presets:', err);
+  }
+}
+
+async function loadPreset(id) {
+  if (!id) return;
+  try {
+    const res = await fetch(`/api/presets/${id}`);
+    const data = await res.json();
+    state.params = JSON.parse(JSON.stringify(data.params));
+    refreshAllSliders();
+    schedulePreview();
+    toast(`已加载预设: ${data.name}`, 'success');
+  } catch (err) {
+    toast('加载预设失败', 'error');
+  }
+}
+
+function showSaveModal() {
+  document.getElementById('save-modal').classList.add('show');
+  document.getElementById('preset-name').focus();
+}
+
+function hideSaveModal() {
+  document.getElementById('save-modal').classList.remove('show');
+}
+
+async function savePreset() {
+  const name = document.getElementById('preset-name').value.trim();
+  if (!name) { toast('请输入预设名称', 'error'); return; }
+
+  try {
+    const formData = new FormData();
+    formData.append('name', name);
+    formData.append('params_json', JSON.stringify(state.params));
+    const res = await fetch('/api/presets', { method: 'POST', body: formData });
+    const data = await res.json();
+    hideSaveModal();
+    document.getElementById('preset-name').value = '';
+    await loadPresets();
+    toast(`预设「${name}」已保存`, 'success');
+  } catch (err) {
+    toast('保存预设失败', 'error');
+  }
+}
+
+async function deletePreset(id) {
+  if (!confirm('确定要删除这个预设吗？')) return;
+  try {
+    await fetch(`/api/presets/${id}`, { method: 'DELETE' });
+    await loadPresets();
+    toast('预设已删除', 'info');
+  } catch (err) {
+    toast('删除失败', 'error');
+  }
+}
+
+async function exportPreset() {
+  try {
+    const formData = new FormData();
+    formData.append('name', '调色预设');
+    formData.append('params_json', JSON.stringify(state.params));
+    const res = await fetch('/api/presets/export', { method: 'POST', body: formData });
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = '调色预设.json';
+    a.click();
+    URL.revokeObjectURL(url);
+    toast('预设已导出', 'success');
+  } catch (err) {
+    toast('导出失败', 'error');
+  }
+}
+
+function importPreset(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      const data = JSON.parse(e.target.result);
+      if (data.params) {
+        state.params = JSON.parse(JSON.stringify(data.params));
+        refreshAllSliders();
+        schedulePreview();
+        toast(`已导入预设: ${data.name || '未命名'}`, 'success');
+      } else {
+        toast('无效的预设文件', 'error');
+      }
+    } catch (err) {
+      toast('解析预设文件失败', 'error');
+    }
+  };
+  reader.readAsText(file);
+  input.value = '';
+}
+
+function resetParams() {
+  if (!confirm('确定要重置所有参数吗？')) return;
+  state.params = JSON.parse(JSON.stringify(DEFAULT_PARAMS));
+  refreshAllSliders();
+  schedulePreview();
+  toast('参数已重置', 'info');
+}
+
+function refreshAllSliders() {
+  // Refresh all range inputs and number inputs from state.params
+  const allSliders = document.querySelectorAll('input[type="range"]');
+  for (const slider of allSliders) {
+    const key = slider.id.replace('slider-', '').replace(/-/g, '.');
+    // Handle HSL keys differently
+    let actualKey = key;
+    let val;
+    try {
+      val = getParam(actualKey);
+      slider.value = val;
+      const numEl = document.getElementById(slider.id + '-num');
+      if (numEl) {
+        if (Number.isInteger(parseFloat(slider.step)) && slider.step >= 1) {
+          numEl.value = Math.round(val);
+        } else {
+          numEl.value = parseFloat(val).toFixed(1);
+        }
+      }
+    } catch(e) {
+      // Try HSL: slider-hsl-red-hue → hsl.red.hue
+      const parts = key.split('-');
+      if (parts.length >= 3) {
+        const colorId = parts[0];
+        const attr = parts[1];
+        if (state.params.hsl[colorId]) {
+          val = state.params.hsl[colorId][attr];
+          slider.value = val;
+          const numEl = document.getElementById(slider.id + '-num');
+          if (numEl) numEl.value = val;
+        }
+      }
+    }
+  }
+}
+
+// ══════════════════════════════════════════════
+//  BATCH PROCESSING
+// ══════════════════════════════════════════════
+function addBatchFiles(files) {
+  for (const file of files) {
+    if (!file.type.startsWith('image/')) continue;
+    state.batchFiles.push({
+      id: 'batch-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
+      file: file,
+      status: 'pending'  // pending | uploading | done | error
+    });
+  }
+  renderBatchList();
+  uploadBatchFiles();
+  document.getElementById('batch-input').value = '';
+}
+
+async function uploadBatchFiles() {
+  const pending = state.batchFiles.filter(f => f.status === 'pending');
+  if (pending.length === 0) return;
+
+  for (const item of pending) {
+    item.status = 'uploading';
+    renderBatchList();
+    try {
+      const formData = new FormData();
+      formData.append('file', item.file);
+      const res = await fetch('/api/upload', { method: 'POST', body: formData });
+      const data = await res.json();
+      item.uploadId = data.id;
+      item.status = 'done';
+    } catch (err) {
+      item.status = 'error';
+      item.error = err.message;
+    }
+    renderBatchList();
+  }
+  updateBatchButton();
+}
+
+function removeBatchFile(index) {
+  state.batchFiles.splice(index, 1);
+  renderBatchList();
+  updateBatchButton();
+}
+
+function renderBatchList() {
+  const list = document.getElementById('batch-list');
+  if (state.batchFiles.length === 0) {
+    list.innerHTML = '<div class="empty-batch">暂无文件，添加图片到队列</div>';
+    return;
+  }
+  list.innerHTML = state.batchFiles.map((f, i) => `
+    <div class="batch-item">
+      <span>🖼️</span>
+      <span class="name">${f.file.name}</span>
+      <span class="status ${f.status === 'done' ? 'ok' : f.status === 'error' ? 'err' : ''}">${
+        f.status === 'pending' ? '等待' :
+        f.status === 'uploading' ? '上传中' :
+        f.status === 'done' ? '✓' : '✗'
+      }</span>
+      <span class="remove" onclick="removeBatchFile(${i})">×</span>
+    </div>
+  `).join('');
+}
+
+function updateBatchButton() {
+  const btn = document.getElementById('btn-batch-process');
+  const ready = state.batchFiles.filter(f => f.status === 'done');
+  btn.disabled = ready.length === 0;
+  btn.textContent = ready.length > 0 ? `▶ 批量处理 (${ready.length})` : '▶ 批量处理';
+}
+
+async function processBatch() {
+  const ready = state.batchFiles.filter(f => f.status === 'done');
+  if (ready.length === 0) return;
+
+  const btn = document.getElementById('btn-batch-process');
+  btn.disabled = true;
+  btn.textContent = '⏳ 处理中...';
+
+  try {
+    const workers = document.getElementById('worker-count').value;
+    const formData = new FormData();
+    formData.append('params_json', JSON.stringify(state.params));
+    formData.append('file_ids', ready.map(f => f.uploadId).join(','));
+    formData.append('workers', workers);
+
+    const res = await fetch('/api/batch', { method: 'POST', body: formData });
+    const data = await res.json();
+
+    if (data.processed > 0) {
+      // Auto download
+      window.open(data.download_url, '_blank');
+      let msg = `批量处理完成！${data.processed}/${data.total} 张 (${data.workers_used} 线程)`;
+      if (data.errors && data.errors.length > 0) {
+        msg += `，${data.errors.length} 张失败`;
+      }
+      toast(msg, 'success');
+    } else {
+      toast('没有成功处理的图片', 'error');
+    }
+  } catch (err) {
+    toast('批量处理失败: ' + err.message, 'error');
+  } finally {
+    btn.disabled = false;
+    updateBatchButton();
+  }
+}
+
+// ══════════════════════════════════════════════
+//  TOAST
+// ══════════════════════════════════════════════
+let toastTimer;
+function toast(msg, type) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = type;
+  el.style.display = 'block';
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.style.display = 'none', 2500);
+}
+
+// ══════════════════════════════════════════════
+//  SYSTEM STATUS & GPU
+// ══════════════════════════════════════════════
+let gpuEnabled = false;
+let gpuAvailable = false;
+
+async function fetchStatus() {
+  try {
+    const res = await fetch('/api/status');
+    const data = await res.json();
+    gpuAvailable = data.gpu.available;
+    gpuEnabled = data.gpu.enabled;
+    updateGpuIndicator();
+    console.log('System:', data.cpu_cores + ' CPU cores, GPU:', data.gpu);
+  } catch (err) {
+    console.error('Status fetch failed:', err);
+  }
+}
+
+function updateGpuIndicator() {
+  const el = document.getElementById('gpu-indicator');
+  if (!gpuAvailable) {
+    el.innerHTML = '🔲 GPU 不可用';
+    el.style.color = 'var(--text-dim)';
+    el.style.borderColor = 'var(--border)';
+    el.style.opacity = '0.6';
+    el.title = '未检测到 NVIDIA GPU 或 CuPy 未安装';
+  } else if (gpuEnabled) {
+    el.innerHTML = '🟢 GPU 加速中';
+    el.style.color = 'var(--success)';
+    el.style.borderColor = 'var(--success)';
+    el.style.opacity = '1';
+    el.title = '点击关闭 GPU 加速';
+  } else {
+    el.innerHTML = '🟡 GPU 可用';
+    el.style.color = 'var(--warn)';
+    el.style.borderColor = 'var(--warn)';
+    el.style.opacity = '1';
+    el.title = '点击开启 GPU 加速';
+  }
+}
+
+async function toggleGPU() {
+  if (!gpuAvailable) {
+    toast('GPU 不可用：需要 NVIDIA 显卡 + CuPy 库\n安装: pip install cupy-cuda12x', 'error');
+    return;
+  }
+  const newState = !gpuEnabled;
+  try {
+    const formData = new FormData();
+    formData.append('enabled', newState.toString());
+    const res = await fetch('/api/gpu/toggle', { method: 'POST', body: formData });
+    const data = await res.json();
+    if (data.ok) {
+      gpuEnabled = data.gpu.enabled;
+      updateGpuIndicator();
+      toast(gpuEnabled ? 'GPU 加速已开启 ⚡' : 'GPU 加速已关闭', gpuEnabled ? 'success' : 'info');
+      // Refresh preview with new processing mode
+      schedulePreview();
+    }
+  } catch (err) {
+    toast('GPU 切换失败: ' + err.message, 'error');
+  }
+}
+
+// ══════════════════════════════════════════════
+//  INIT
+// ══════════════════════════════════════════════
+buildSliders();
+loadPresets();
+fetchStatus();
+</script>
+
+</body>
+</html>
