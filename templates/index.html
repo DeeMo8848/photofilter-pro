@@ -348,6 +348,7 @@ main { display: flex; flex: 1; overflow: hidden; }
       <div id="batch-actions">
         <button onclick="document.getElementById('batch-input').click()">＋ 添加文件</button>
         <button id="btn-batch-process" class="btn-process" onclick="processBatch()" disabled>▶ 批量处理</button>
+        <button onclick="openBatchOutput()" title="打开输出目录">📂</button>
         <input type="file" id="batch-input" accept="image/*" multiple style="display:none" onchange="addBatchFiles(this.files)">
       </div>
       <div style="padding:6px 14px;display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text-dim)">
@@ -410,6 +411,7 @@ const state = {
   params: JSON.parse(JSON.stringify(DEFAULT_PARAMS)),
   presets: [],
   batchFiles: [],
+  lastBatchDir: null,
   previewMode: 'after',
   pendingPreview: null  // debounce timer
 };
@@ -705,7 +707,7 @@ function setPreviewMode(mode) {
 async function saveImage() {
   if (!state.currentImage) return;
   try {
-    const res = await fetch(`/api/save/${state.currentImage}`, { method: 'POST' });
+    const res = await fetch(`/api/save/${state.currentImage.id}`, { method: 'POST' });
     const data = await res.json();
     if (data.ok) {
       toast('💾 已保存到 outputs/', 'success');
@@ -720,8 +722,8 @@ async function saveImage() {
 window.addEventListener('beforeunload', () => {
   if (state.currentImage && !state._saved && state.processedUrl && state.processedUrl.startsWith('blob:')) {
     const fd = new FormData();
-    fd.append('img_id', state.currentImage);
-    navigator.sendBeacon(`/api/save/${state.currentImage}`, fd);
+    fd.append('img_id', state.currentImage.id);
+    navigator.sendBeacon(`/api/save/${state.currentImage.id}`, fd);
   }
 });
 
@@ -940,12 +942,13 @@ function renderBatchList() {
   }
   list.innerHTML = state.batchFiles.map((f, i) => `
     <div class="batch-item">
-      <span>🖼️</span>
+      <span>${f.status === 'ok' ? '✅' : '🖼️'}</span>
       <span class="name">${f.file.name}</span>
-      <span class="status ${f.status === 'done' ? 'ok' : f.status === 'error' ? 'err' : ''}">${
+      <span class="status ${f.status === 'done' ? 'ok' : f.status === 'ok' ? 'ok' : f.status === 'error' ? 'err' : ''}">${
         f.status === 'pending' ? '等待' :
         f.status === 'uploading' ? '上传中' :
-        f.status === 'done' ? '✓' : '✗'
+        f.status === 'done' ? '✓' :
+        f.status === 'ok' ? '✓ 完成' : '✗'
       }</span>
       <span class="remove" onclick="removeBatchFile(${i})">×</span>
     </div>
@@ -978,8 +981,12 @@ async function processBatch() {
     const data = await res.json();
 
     if (data.processed > 0) {
-      // Auto download
-      window.open(data.download_url, '_blank');
+      // Mark processed files
+      for (const f of state.batchFiles) {
+        if (f.status === 'done') f.status = 'ok';
+      }
+      state.lastBatchDir = data.output_dir;
+      renderBatchList();
       let msg = `批量处理完成！${data.processed}/${data.total} 张 (${data.workers_used} 线程)`;
       if (data.errors && data.errors.length > 0) {
         msg += `，${data.errors.length} 张失败`;
@@ -994,6 +1001,18 @@ async function processBatch() {
     btn.disabled = false;
     updateBatchButton();
   }
+}
+
+async function openBatchOutput() {
+  if (!state.lastBatchDir) {
+    toast('暂无处理结果输出目录', 'info');
+    return;
+  }
+  const fd = new FormData();
+  fd.append('path', state.lastBatchDir);
+  const res = await fetch('/api/open_folder', { method: 'POST', body: fd });
+  const data = await res.json();
+  if (!data.ok) toast(data.error || '打开失败', 'error');
 }
 
 // ══════════════════════════════════════════════

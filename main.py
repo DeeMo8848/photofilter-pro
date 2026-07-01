@@ -7,7 +7,6 @@ import io
 import json
 import uuid
 import shutil
-import zipfile
 from pathlib import Path
 from datetime import datetime
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -322,33 +321,15 @@ async def batch_process(params_json: str = Form(...), file_ids: str = Form(...),
                 errors.append({"file": fname, "error": err})
 
     # Create zip
-    zip_path = batch_dir / "output.zip"
-    with zipfile.ZipFile(str(zip_path), 'w', zipfile.ZIP_DEFLATED) as zf:
-        for img_id in ids:
-            img_path = batch_dir / f"{img_id}.jpg"
-            if img_path.exists():
-                zf.write(str(img_path), f"{img_id}.jpg")
-
+    # (processing complete, files saved to batch_dir)
     return {
         "processed": len(processed),
-        "total": len(ids),
+        "total": len(tasks),
         "errors": errors,
         "workers_used": n_workers,
-        "download_url": f"/api/batch/download/{batch_id}"
+        "batch_id": batch_id,
+        "output_dir": str(batch_dir)
     }
-
-
-@app.get("/api/batch/download/{batch_id}")
-async def download_batch(batch_id: str):
-    """Download batch processing results as zip."""
-    zip_path = OUTPUT_DIR / f"batch_{batch_id}" / "output.zip"
-    if not zip_path.exists():
-        raise HTTPException(404, "Batch result not found")
-    return FileResponse(
-        zip_path,
-        media_type="application/zip",
-        filename=f"photofilter_batch_{batch_id[:8]}.zip"
-    )
 
 
 # ═══════════════════════════════════════════
@@ -364,6 +345,35 @@ async def get_defaults():
 # ═══════════════════════════════════════════
 #  Startup
 # ═══════════════════════════════════════════
+
+# ═══════════════════════════════════════════
+#  Utility
+# ═══════════════════════════════════════════
+
+@app.post("/api/open_folder")
+async def open_folder(path: str = Form(...)):
+    """Open folder in Windows Explorer."""
+    p = Path(path)
+    if not p.exists():
+        raise HTTPException(404, f"Path not found: {path}")
+    os.startfile(str(p))
+    return {"ok": True}
+
+
+# ═══════════════════════════════════════════
+#  Shutdown cleanup
+# ═══════════════════════════════════════════
+
+@app.on_event("shutdown")
+async def cleanup_uploads():
+    """Clean up uploaded temp files on shutdown."""
+    if UPLOAD_DIR.exists():
+        for f in UPLOAD_DIR.iterdir():
+            try:
+                f.unlink()
+            except Exception:
+                pass
+
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8899)
