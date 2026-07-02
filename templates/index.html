@@ -265,11 +265,13 @@ main { display: flex; flex: 1; overflow: hidden; }
       <option value="">— 选择预设 —</option>
     </select>
     <button onclick="showSaveModal()">💾 保存预设</button>
+    <button onclick="deleteCurrentPreset()" title="删除当前选中的预设">🗑</button>
     <button onclick="exportPreset()">📤 导出</button>
     <button onclick="document.getElementById('import-file').click()">📥 导入</button>
     <input type="file" id="import-file" accept=".json" style="display:none" onchange="importPreset(this)">
     <span id="gpu-indicator" style="font-size:11px;color:var(--text-dim);display:flex;align-items:center;gap:4px;padding:4px 8px;border:1px solid var(--border);border-radius:4px;cursor:pointer" onclick="toggleGPU()" title="点击切换 GPU 加速">🔲 GPU</span>
     <button class="btn-accent" onclick="resetParams()">↺ 重置</button>
+    <button onclick="randomizeParams()" title="随机生成一套参数">🎲 随机</button>
   </header>
 
   <main>
@@ -338,6 +340,7 @@ main { display: flex; flex: 1; overflow: hidden; }
           <button id="btn-after" class="active" onclick="setPreviewMode('after')">✨ 处理后</button>
           <button id="btn-compare" onclick="setPreviewMode('compare')">⚖ 对比</button>
           <button id="btn-save" onclick="saveImage()" style="margin-left:auto" title="保存到 outputs/">💾 保存</button>
+          <button onclick="closeImage()" title="关闭当前图片">✕</button>
         </div>
       </div>
     </section>
@@ -643,6 +646,9 @@ async function uploadImage(file) {
     document.getElementById('preview-img').src = state.originalUrl;
     document.getElementById('btn-after').classList.add('active');
     document.getElementById('btn-before').classList.remove('active');
+    document.getElementById('file-input').value = '';  // allow re-select same file
+    // Auto-apply current params (if any non-default)
+    schedulePreview();
   } catch (err) {
     toast('上传失败: ' + err.message, 'error');
   }
@@ -716,6 +722,18 @@ async function saveImage() {
   } catch (err) {
     toast('保存失败: ' + err.message, 'error');
   }
+}
+
+function closeImage() {
+  state.currentImage = null;
+  state.originalUrl = '';
+  state.processedUrl = '';
+  state._saved = false;
+  document.getElementById('drop-zone').style.display = '';
+  document.getElementById('preview-container').style.display = 'none';
+  document.getElementById('preview-toolbar').style.display = 'none';
+  document.getElementById('preview-img').src = '';
+  document.getElementById('file-input').value = '';
 }
 
 // Auto-save on close if not manually saved
@@ -802,6 +820,13 @@ async function deletePreset(id) {
   }
 }
 
+function deleteCurrentPreset() {
+  const select = document.getElementById('preset-select');
+  const id = select.value;
+  if (!id) { toast('请先选择一个预设', 'error'); return; }
+  deletePreset(id);
+}
+
 async function exportPreset() {
   try {
     const formData = new FormData();
@@ -850,6 +875,61 @@ function resetParams() {
   refreshAllSliders();
   schedulePreview();
   toast('参数已重置', 'info');
+}
+
+function randomizeParams() {
+  // Basic
+  state.params.temperature = randInt(-100, 100);
+  state.params.tint = randInt(-100, 100);
+  state.params.exposure = randFloat(-3, 3);
+  state.params.contrast = randInt(-80, 80);
+  state.params.highlights = randInt(-100, 100);
+  state.params.shadows = randInt(-100, 100);
+  state.params.whites = randInt(-100, 100);
+  state.params.blacks = randInt(-100, 100);
+  // Presence
+  state.params.texture = randInt(-80, 80);
+  state.params.clarity = randInt(-80, 80);
+  state.params.dehaze = randInt(0, 80);
+  // Color
+  state.params.vibrance = randInt(-60, 60);
+  state.params.saturation = randInt(-60, 60);
+  // HSL — reset all, then pick 1-3 random color channels to shift
+  const hslColors = ['red','orange','yellow','green','aqua','blue','purple','magenta'];
+  for (const c of hslColors) {
+    state.params.hsl[c] = { hue: 0, saturation: 0, luminance: 0 };
+  }
+  const n = randInt(1, 3);
+  const chosen = hslColors.sort(() => Math.random() - 0.5).slice(0, n);
+  for (const c of chosen) {
+    state.params.hsl[c] = {
+      hue: randInt(-80, 80),
+      saturation: randInt(-100, 100),
+      luminance: randInt(-100, 100)
+    };
+  }
+  // Sharpening
+  state.params.sharpening.amount = randInt(0, 120);
+  state.params.sharpening.radius = randFloat(0.5, 2.5);
+  state.params.sharpening.detail = randInt(0, 80);
+  state.params.sharpening.masking = randInt(0, 60);
+  // Noise reduction
+  state.params.noise_reduction.luminance = randInt(0, 60);
+  state.params.noise_reduction.detail = randInt(0, 80);
+  state.params.noise_reduction.color = randInt(0, 60);
+  state.params.noise_reduction.color_detail = randInt(0, 80);
+
+  refreshAllSliders();
+  schedulePreview();
+  toast('🎲 已生成随机参数', 'info');
+}
+
+function randInt(min, max) {
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+function randFloat(min, max) {
+  return Math.round((Math.random() * (max - min) + min) * 100) / 100;
 }
 
 function refreshAllSliders() {
@@ -1004,12 +1084,9 @@ async function processBatch() {
 }
 
 async function openBatchOutput() {
-  if (!state.lastBatchDir) {
-    toast('暂无处理结果输出目录', 'info');
-    return;
-  }
+  // Default to OUTPUT_DIR, or last batch dir if available
   const fd = new FormData();
-  fd.append('path', state.lastBatchDir);
+  fd.append('path', state.lastBatchDir || 'outputs');
   const res = await fetch('/api/open_folder', { method: 'POST', body: fd });
   const data = await res.json();
   if (!data.ok) toast(data.error || '打开失败', 'error');

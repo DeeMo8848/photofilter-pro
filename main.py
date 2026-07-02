@@ -14,8 +14,9 @@ import multiprocessing
 
 from fastapi import FastAPI, File, UploadFile, Form, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse, HTMLResponse
-from fastapi.staticfiles import StaticFiles
+from starlette.requests import Headers
 import uvicorn
+from urllib.parse import quote
 
 from processor import load_and_process, DEFAULT_PARAMS, set_use_gpu, get_gpu_status, HAS_GPU
 
@@ -134,13 +135,19 @@ async def preview_with_params(img_id: str, params_json: str = Form(...)):
 
 @app.post("/api/save/{img_id}")
 async def save_image(img_id: str):
-    """Manually save the last processed preview to outputs/."""
-    if img_id not in _preview_cache:
-        raise HTTPException(404, "No cached preview for this image. Process it first.")
-
-    out_path = OUTPUT_DIR / f"{img_id}.jpg"
-    out_path.write_bytes(_preview_cache[img_id])
-    return {"ok": True, "path": str(out_path)}
+    """Save the processed preview or original to outputs/."""
+    if img_id in _preview_cache:
+        out_path = OUTPUT_DIR / f"{img_id}.jpg"
+        out_path.write_bytes(_preview_cache[img_id])
+        return {"ok": True, "path": str(out_path)}
+    # No processed cache — save the untouched original
+    for ext in ('.jpg', '.jpeg', '.png', '.webp', '.bmp'):
+        src = UPLOAD_DIR / f"{img_id}{ext}"
+        if src.exists():
+            out_path = OUTPUT_DIR / f"{img_id}{ext}"
+            shutil.copy2(str(src), str(out_path))
+            return {"ok": True, "path": str(out_path)}
+    raise HTTPException(404, "Image not found")
 
 
 # ═══════════════════════════════════════════
@@ -217,7 +224,7 @@ async def export_preset(params_json: str = Form(...), name: str = Form("preset")
     return StreamingResponse(
         io.BytesIO(content.encode("utf-8")),
         media_type="application/json",
-        headers={"Content-Disposition": f'attachment; filename="{name}.json"'}
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(name + '.json')}"}
     )
 
 
@@ -354,26 +361,20 @@ async def get_defaults():
 async def open_folder(path: str = Form(...)):
     """Open folder in Windows Explorer."""
     p = Path(path)
+    if not p.is_absolute():
+        p = BASE_DIR / p
     if not p.exists():
-        raise HTTPException(404, f"Path not found: {path}")
+        p.mkdir(parents=True, exist_ok=True)
     os.startfile(str(p))
     return {"ok": True}
 
 
-# ═══════════════════════════════════════════
-#  Shutdown cleanup
-# ═══════════════════════════════════════════
-
-@app.on_event("shutdown")
-async def cleanup_uploads():
-    """Clean up uploaded temp files on shutdown."""
+if __name__ == "__main__":
+    # Clean up stale uploads from previous runs
     if UPLOAD_DIR.exists():
         for f in UPLOAD_DIR.iterdir():
             try:
                 f.unlink()
             except Exception:
                 pass
-
-
-if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8899)

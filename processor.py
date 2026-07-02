@@ -41,13 +41,17 @@ def get_gpu_status() -> dict:
 
 
 def _gaussian_filter(arr: np.ndarray, sigma: float) -> np.ndarray:
-    """Gaussian filter — auto-routes to GPU when enabled."""
+    """Gaussian filter — auto-routes to GPU when enabled, falls back to CPU on failure."""
     if sigma <= 0:
         return arr.copy()
     if _use_gpu and HAS_GPU:
-        gpu_arr = cp.asarray(arr)
-        result = _gpu_gaussian_filter(gpu_arr, sigma=sigma)
-        return cp.asnumpy(result)
+        try:
+            gpu_arr = cp.asarray(arr)
+            result = _gpu_gaussian_filter(gpu_arr, sigma=sigma)
+            return cp.asnumpy(result)
+        except Exception:
+            # GPU path failed — silently fall through to CPU
+            pass
     return gaussian_filter(arr, sigma=sigma)
 
 
